@@ -29,6 +29,7 @@ export interface Program {
   phase: number | null;
   phase_group_id: string | null;
   phase_unlock_threshold: number | null;
+  is_premium: boolean;
   created_at?: string;
 }
 
