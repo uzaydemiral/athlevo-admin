@@ -275,6 +275,7 @@ export default function ProgramForm({ program }: Props) {
                   <option value={1}>Faz 1 — Temel</option>
                   <option value={2}>Faz 2 — Gelişmiş</option>
                   <option value={3}>Faz 3 — Elit</option>
+                  <option value={4}>Faz 4 — Efsane</option>
                 </select>
               </div>
 
