@@ -7,7 +7,10 @@ import { createClient } from "@/lib/supabase/client";
 const navItems = [
   { href: "/dashboard", label: "Genel Bakış", icon: "📊" },
   { href: "/programs", label: "Programlar", icon: "🏋️" },
+  { href: "/plans", label: "Planlar", icon: "📅" },
   { href: "/categories", label: "Kategoriler", icon: "📁" },
+  { href: "/rewards", label: "Ödüller", icon: "🎁" },
+  { href: "/claims", label: "Talepler", icon: "📦" },
 ];
 
 export default function Sidebar() {
