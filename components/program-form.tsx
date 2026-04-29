@@ -34,6 +34,7 @@ export default function ProgramForm({ program }: Props) {
   const [phaseGroupId, setPhaseGroupId] = useState(program?.phase_group_id || "");
   const [phaseUnlockThreshold, setPhaseUnlockThreshold] = useState(program?.phase_unlock_threshold || 3);
   const [isPremium, setIsPremium] = useState(program?.is_premium || false);
+  const [isHidden, setIsHidden] = useState(program?.is_hidden || false);
 
   useEffect(() => {
     async function fetchOptions() {
@@ -73,6 +74,7 @@ export default function ProgramForm({ program }: Props) {
       phase: hasPhase ? phase : null,
       phase_group_id: hasPhase ? phaseGroupId || null : null,
       is_premium: isPremium,
+      is_hidden: isHidden,
     };
 
     if (hasPhase) {
@@ -275,7 +277,8 @@ export default function ProgramForm({ program }: Props) {
                   <option value={1}>Faz 1 — Temel</option>
                   <option value={2}>Faz 2 — Gelişmiş</option>
                   <option value={3}>Faz 3 — Elit</option>
-                  <option value={4}>Faz 4 — Efsane</option>
+                  <option value={4}>Faz 4 — Usta</option>
+                  <option value={5}>Faz 5 — Efsane</option>
                 </select>
               </div>
 
@@ -355,6 +358,25 @@ export default function ProgramForm({ program }: Props) {
           </button>
           <label className="text-sm text-[var(--text-secondary)]">
             💎 Premium (Abonelik Gerekli)
+          </label>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setIsHidden(!isHidden)}
+            className={`w-12 h-6 rounded-full transition-colors ${
+              isHidden ? "bg-purple-600" : "bg-[var(--border)]"
+            }`}
+          >
+            <div
+              className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                isHidden ? "translate-x-6" : "translate-x-0.5"
+              }`}
+            />
+          </button>
+          <label className="text-sm text-[var(--text-secondary)]">
+            🔒 Plan İçi (Programlar listesinden gizle)
           </label>
         </div>
       </div>

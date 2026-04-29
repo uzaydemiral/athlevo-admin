@@ -30,6 +30,8 @@ export interface Program {
   phase_group_id: string | null;
   phase_unlock_threshold: number | null;
   is_premium: boolean;
+  /** Plan-only program — Programlar (browse) listesinde görünmez, plan günlerinde seçilebilir. */
+  is_hidden: boolean;
   created_at?: string;
 }
 

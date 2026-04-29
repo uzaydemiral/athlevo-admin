@@ -98,7 +98,14 @@ export default function ProgramsPage() {
                       </div>
                     )}
                     <div>
-                      <p className="font-medium">{program.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{program.name}</p>
+                        {program.is_hidden && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-900/30 text-purple-400 border border-purple-700">
+                            🔒 Plan İçi
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-[var(--text-secondary)]">
                         {program.subtitle}
                       </p>
