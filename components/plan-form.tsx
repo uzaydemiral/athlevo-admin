@@ -17,6 +17,7 @@ import {
   INTENSITY_LABELS,
 } from "@/lib/types";
 import ImageUpload from "./image-upload";
+import ProgramQuickCreateModal from "./program-quick-create-modal";
 
 interface Props {
   plan?: TrainingPlan;
@@ -104,15 +105,30 @@ export default function PlanForm({ plan, initialDays }: Props) {
       current.map((d, i) => {
         if (i !== index) return d;
         const merged = { ...d, ...patch };
-        // Constraint enforcement: workout day must have program, non-workout must not
-        if (merged.day_type === "workout" && !merged.workout_program_id) {
-          // keep as-is, validation will catch on save
-        } else if (merged.day_type !== "workout") {
+        // Constraint: only "rest" days clear the program. Workout/basketball/recovery
+        // can hold a program (workout requires one, others optional).
+        if (merged.day_type === "rest") {
           merged.workout_program_id = null;
         }
         return merged;
       })
     );
+  }
+
+  // Quick-create modal state — hangi gün için açıldığını tut.
+  const [quickCreateForDay, setQuickCreateForDay] = useState<number | null>(null);
+
+  function quickCreateSuggestedName(dayIndex: number): string {
+    const week = Math.floor(dayIndex / 7) + 1;
+    const dayInWeek = (dayIndex % 7) + 1;
+    return `Hafta ${week} · Gün ${dayInWeek}`;
+  }
+
+  function handleQuickCreated(newProgram: Program) {
+    if (quickCreateForDay === null) return;
+    setPrograms((prev) => [...prev, newProgram]);
+    updateDay(quickCreateForDay, { workout_program_id: newProgram.id });
+    setQuickCreateForDay(null);
   }
 
   function handleWeeksChange(newWeeks: number) {
@@ -370,6 +386,7 @@ export default function PlanForm({ plan, initialDays }: Props) {
                           dayLabel={`Gün ${globalIdx + 1} · ${TR_WEEKDAYS[weekdayIdx]}`}
                           programs={programs}
                           onChange={(patch) => updateDay(globalIdx, patch)}
+                          onQuickCreate={() => setQuickCreateForDay(globalIdx)}
                         />
                       );
                     })}
@@ -448,6 +465,16 @@ export default function PlanForm({ plan, initialDays }: Props) {
           </div>
         </div>
       )}
+
+      {/* Plan-içi yeni program oluşturma modal'ı */}
+      <ProgramQuickCreateModal
+        isOpen={quickCreateForDay !== null}
+        suggestedName={
+          quickCreateForDay !== null ? quickCreateSuggestedName(quickCreateForDay) : ""
+        }
+        onClose={() => setQuickCreateForDay(null)}
+        onCreated={handleQuickCreated}
+      />
     </form>
   );
 }
@@ -459,9 +486,10 @@ interface DayEditorProps {
   dayLabel: string;
   programs: Program[];
   onChange: (patch: Partial<TrainingPlanDay>) => void;
+  onQuickCreate: () => void;
 }
 
-function DayEditor({ day, dayLabel, programs, onChange }: DayEditorProps) {
+function DayEditor({ day, dayLabel, programs, onChange, onQuickCreate }: DayEditorProps) {
   const [showNotes, setShowNotes] = useState(!!day.notes);
 
   const dayTypeColor: Record<DayType, string> = {
@@ -502,30 +530,40 @@ function DayEditor({ day, dayLabel, programs, onChange }: DayEditorProps) {
           </select>
         </div>
 
-        {day.day_type === "workout" && (
+        {day.day_type !== "rest" && (
           <div>
             <label className="block text-xs text-[var(--text-secondary)] mb-1">
-              Program *
+              Program {day.day_type === "workout" ? "*" : "(opsiyonel)"}
             </label>
-            <select
-              value={day.workout_program_id || ""}
-              onChange={(e) =>
-                onChange({ workout_program_id: e.target.value || null })
-              }
-              required
-              className={`w-full px-3 py-2 rounded bg-[var(--bg-secondary)] border text-white text-sm focus:outline-none focus:border-[var(--accent)] ${
-                day.workout_program_id
-                  ? "border-[var(--border)]"
-                  : "border-orange-700"
-              }`}
-            >
-              <option value="">Seç...</option>
-              {programs.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+            <div className="flex gap-2">
+              <select
+                value={day.workout_program_id || ""}
+                onChange={(e) =>
+                  onChange({ workout_program_id: e.target.value || null })
+                }
+                required={day.day_type === "workout"}
+                className={`flex-1 px-3 py-2 rounded bg-[var(--bg-secondary)] border text-white text-sm focus:outline-none focus:border-[var(--accent)] ${
+                  day.day_type === "workout" && !day.workout_program_id
+                    ? "border-orange-700"
+                    : "border-[var(--border)]"
+                }`}
+              >
+                <option value="">Seç...</option>
+                {programs.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={onQuickCreate}
+                title="Plan-içi yeni program oluştur"
+                className="px-3 py-2 rounded bg-purple-900/30 hover:bg-purple-900/50 border border-purple-700 text-purple-400 text-sm transition-colors whitespace-nowrap"
+              >
+                + Yeni
+              </button>
+            </div>
           </div>
         )}
       </div>
