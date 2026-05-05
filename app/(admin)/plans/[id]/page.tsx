@@ -22,7 +22,7 @@ export default function EditPlanPage({
       supabase.from("training_plans").select("*").eq("id", id).single(),
       supabase
         .from("training_plan_days")
-        .select("*")
+        .select("*, exercises:training_plan_day_exercises(*)")
         .eq("plan_id", id)
         .order("day_index"),
     ]);
@@ -30,7 +30,16 @@ export default function EditPlanPage({
       console.error("Plan fetch error:", planRes.error);
     }
     setPlan(planRes.data as TrainingPlan);
-    setDays((daysRes.data || []) as TrainingPlanDay[]);
+    // Egzersizleri sort_order'a göre sırala
+    const daysWithSortedExercises = ((daysRes.data || []) as TrainingPlanDay[]).map(
+      (d) => ({
+        ...d,
+        exercises: (d.exercises || []).slice().sort(
+          (a, b) => a.sort_order - b.sort_order
+        ),
+      })
+    );
+    setDays(daysWithSortedExercises);
     setLoading(false);
   }, [id]);
 

@@ -148,10 +148,28 @@ export interface TrainingPlanDay {
   plan_id: string;
   day_index: number;
   day_type: DayType;
-  workout_program_id: string | null;
+  /** @deprecated Plan günleri artık kendi egzersizlerini tutuyor. Eski iOS sürümleri için kolon korunuyor, yeni planlar null. */
+  workout_program_id?: string | null;
   title: string;
   notes: string | null;
   estimated_duration_min: number | null;
   intensity: Intensity | null;
+  created_at?: string;
+  /** Bu güne ait egzersizler. Snapshot — katalog egzersizlerinden kopyalanır veya manuel girilir. */
+  exercises?: TrainingPlanDayExercise[];
+}
+
+/** Plan gününün egzersiz listesi. exercises tablosundan bağımsız (snapshot). */
+export interface TrainingPlanDayExercise {
+  id?: string;
+  day_id?: string;
+  name: string;
+  sets: number;
+  reps: number;
+  duration_seconds: number;
+  rest_seconds: number;
+  description: string;
+  video_url: string | null;
+  sort_order: number;
   created_at?: string;
 }

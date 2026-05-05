@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type {
   TrainingPlan,
   TrainingPlanDay,
-  Program,
+  TrainingPlanDayExercise,
   DayType,
   Intensity,
 } from "@/lib/types";
@@ -17,7 +17,8 @@ import {
   INTENSITY_LABELS,
 } from "@/lib/types";
 import ImageUpload from "./image-upload";
-import ProgramQuickCreateModal from "./program-quick-create-modal";
+import PlanDayExerciseForm from "./plan-day-exercise-form";
+import ExerciseLibraryPicker from "./exercise-library-picker";
 
 interface Props {
   plan?: TrainingPlan;
@@ -36,6 +37,7 @@ function emptyDay(planId: string, dayIndex: number): TrainingPlanDay {
     notes: null,
     estimated_duration_min: null,
     intensity: null,
+    exercises: [],
   };
 }
 
@@ -50,7 +52,7 @@ export default function PlanForm({ plan, initialDays }: Props) {
   const [imageUrl, setImageUrl] = useState(plan?.image_url || "");
   const [isPublished, setIsPublished] = useState(plan?.is_published ?? false);
 
-  // Days
+  // Days (with exercises)
   const [days, setDays] = useState<TrainingPlanDay[]>(() => {
     const planId = plan?.id || "new";
     const total = (plan?.weeks_count || 12) * 7;
@@ -58,30 +60,28 @@ export default function PlanForm({ plan, initialDays }: Props) {
     const arr: TrainingPlanDay[] = [];
     for (let i = 0; i < total; i++) {
       const existing = seeded.find((d) => d.day_index === i);
-      arr.push(existing || emptyDay(planId, i));
+      if (existing) {
+        arr.push({ ...existing, exercises: existing.exercises || [] });
+      } else {
+        arr.push(emptyDay(planId, i));
+      }
     }
     return arr;
   });
-
-  // Programs (for workout day selector)
-  const [programs, setPrograms] = useState<Program[]>([]);
 
   // UI state
   const [openWeek, setOpenWeek] = useState<number | null>(0);
   const [saving, setSaving] = useState(false);
   const [confirmShrink, setConfirmShrink] = useState<number | null>(null);
 
-  useEffect(() => {
-    async function fetchPrograms() {
-      const supabase = createClient();
-      const { data } = await supabase
-        .from("programs")
-        .select("*")
-        .order("name");
-      setPrograms((data || []) as Program[]);
-    }
-    fetchPrograms();
-  }, []);
+  // Egzersiz formu — açık gün ve düzenlenen egzersiz indeksi (yeni için -1)
+  const [exerciseModal, setExerciseModal] = useState<{
+    dayIndex: number;
+    exerciseIndex: number; // -1 = yeni
+  } | null>(null);
+
+  // Kütüphane modal — hangi gün için
+  const [libraryForDay, setLibraryForDay] = useState<number | null>(null);
 
   // When weeksCount changes, grow/shrink days
   useEffect(() => {
@@ -105,35 +105,52 @@ export default function PlanForm({ plan, initialDays }: Props) {
       current.map((d, i) => {
         if (i !== index) return d;
         const merged = { ...d, ...patch };
-        // Constraint: only "rest" days clear the program. Workout/basketball/recovery
-        // can hold a program (workout requires one, others optional).
+        // Rest günü egzersiz tutmaz — geçişte temizle
         if (merged.day_type === "rest") {
-          merged.workout_program_id = null;
+          merged.exercises = [];
         }
+        // workout_program_id artık kullanılmıyor; her zaman null kalsın
+        merged.workout_program_id = null;
         return merged;
       })
     );
   }
 
-  // Quick-create modal state — hangi gün için açıldığını tut.
-  const [quickCreateForDay, setQuickCreateForDay] = useState<number | null>(null);
-
-  function quickCreateSuggestedName(dayIndex: number): string {
-    const week = Math.floor(dayIndex / 7) + 1;
-    const dayInWeek = (dayIndex % 7) + 1;
-    return `Hafta ${week} · Gün ${dayInWeek}`;
+  function setDayExercises(
+    dayIndex: number,
+    next: TrainingPlanDayExercise[]
+  ) {
+    setDays((current) =>
+      current.map((d, i) =>
+        i === dayIndex
+          ? {
+              ...d,
+              exercises: next.map((ex, idx) => ({ ...ex, sort_order: idx })),
+            }
+          : d
+      )
+    );
   }
 
-  function handleQuickCreated(newProgram: Program) {
-    if (quickCreateForDay === null) return;
-    setPrograms((prev) => [...prev, newProgram]);
-    updateDay(quickCreateForDay, { workout_program_id: newProgram.id });
-    setQuickCreateForDay(null);
+  function appendDayExercises(
+    dayIndex: number,
+    additions: TrainingPlanDayExercise[]
+  ) {
+    setDays((current) =>
+      current.map((d, i) => {
+        if (i !== dayIndex) return d;
+        const existing = d.exercises || [];
+        const combined = [...existing, ...additions];
+        return {
+          ...d,
+          exercises: combined.map((ex, idx) => ({ ...ex, sort_order: idx })),
+        };
+      })
+    );
   }
 
   function handleWeeksChange(newWeeks: number) {
     if (newWeeks < weeksCount && isEdit) {
-      // Shrinking on edit — confirm because user_plan_progress may reference removed days
       setConfirmShrink(newWeeks);
       return;
     }
@@ -154,11 +171,11 @@ export default function PlanForm({ plan, initialDays }: Props) {
     if (weeksCount < 1 || weeksCount > 24)
       errors.push("Hafta sayısı 1-24 arası olmalı");
     days.forEach((d, i) => {
-      if (d.day_type === "workout" && !d.workout_program_id) {
-        errors.push(`Gün ${i + 1}: Antrenman günü için program seç`);
-      }
       if (!d.title.trim()) {
         errors.push(`Gün ${i + 1}: Başlık boş olamaz`);
+      }
+      if (d.day_type === "workout" && (d.exercises || []).length === 0) {
+        errors.push(`Gün ${i + 1}: Antrenman gününde en az 1 egzersiz olmalı`);
       }
     });
     return errors;
@@ -207,8 +224,8 @@ export default function PlanForm({ plan, initialDays }: Props) {
       planId = (data as TrainingPlan).id;
     }
 
-    // Strategy: delete all existing days for this plan, re-insert from current state.
-    // Safe because user_plan_progress references day_index (int), not day UUID.
+    // Strateji: günleri ve egzersizleri tamamen sil, yeniden oluştur.
+    // training_plan_day_exercises CASCADE ile günlerle birlikte silinir.
     const { error: delError } = await supabase
       .from("training_plan_days")
       .delete()
@@ -223,24 +240,74 @@ export default function PlanForm({ plan, initialDays }: Props) {
       plan_id: planId,
       day_index: d.day_index,
       day_type: d.day_type,
-      workout_program_id: d.workout_program_id,
+      workout_program_id: null,
       title: d.title,
       notes: d.notes,
       estimated_duration_min: d.estimated_duration_min,
       intensity: d.intensity,
     }));
 
-    const { error: insError } = await supabase
+    const { data: insertedDays, error: insError } = await supabase
       .from("training_plan_days")
-      .insert(dayRows);
-    if (insError) {
-      alert("Gün ekleme hatası: " + insError.message);
+      .insert(dayRows)
+      .select("id, day_index");
+    if (insError || !insertedDays) {
+      alert("Gün ekleme hatası: " + (insError?.message || "bilinmeyen"));
       setSaving(false);
       return;
     }
 
+    // day_index → yeni dayId map
+    const dayIdByIndex = new Map<number, string>();
+    (insertedDays as { id: string; day_index: number }[]).forEach((d) => {
+      dayIdByIndex.set(d.day_index, d.id);
+    });
+
+    // Egzersizleri topla (sadece dolu olanlar)
+    const exerciseRows: Array<Omit<TrainingPlanDayExercise, "id" | "created_at"> & {
+      day_id: string;
+    }> = [];
+    days.forEach((d) => {
+      const dayId = dayIdByIndex.get(d.day_index);
+      if (!dayId) return;
+      (d.exercises || []).forEach((ex, idx) => {
+        exerciseRows.push({
+          day_id: dayId,
+          name: ex.name,
+          sets: ex.sets,
+          reps: ex.reps,
+          duration_seconds: ex.duration_seconds,
+          rest_seconds: ex.rest_seconds,
+          description: ex.description,
+          video_url: ex.video_url,
+          sort_order: idx,
+        });
+      });
+    });
+
+    if (exerciseRows.length > 0) {
+      const { error: exErr } = await supabase
+        .from("training_plan_day_exercises")
+        .insert(exerciseRows);
+      if (exErr) {
+        alert(
+          "Egzersizleri kaydetme hatası: " +
+            exErr.message +
+            "\nPlan ve günler kaydedildi, egzersizleri tekrar ekleyip kaydet."
+        );
+        setSaving(false);
+        return;
+      }
+    }
+
     setSaving(false);
-    router.push("/plans");
+    // Yeni plan kaydedildikten sonra edit sayfasına yönlendir — video upload
+    // dayId gerektirdiği için ikinci save'de stabil çalışsın.
+    if (!isEdit) {
+      router.push(`/plans/${planId}`);
+    } else {
+      router.push("/plans");
+    }
     router.refresh();
   }
 
@@ -252,6 +319,13 @@ export default function PlanForm({ plan, initialDays }: Props) {
     }
     return arr;
   }, [days, weeksCount]);
+
+  const editingDay =
+    exerciseModal !== null ? days[exerciseModal.dayIndex] : undefined;
+  const editingExercise =
+    exerciseModal && editingDay && exerciseModal.exerciseIndex >= 0
+      ? editingDay.exercises?.[exerciseModal.exerciseIndex]
+      : undefined;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
@@ -343,9 +417,12 @@ export default function PlanForm({ plan, initialDays }: Props) {
 
         <div className="space-y-2">
           {weeks.map((weekDays, w) => {
-            const filled = weekDays.filter(
-              (d) => d.day_type !== "workout" || d.workout_program_id
-            ).length;
+            const filled = weekDays.filter((d) => {
+              if (d.day_type === "rest") return true;
+              if (d.day_type === "workout")
+                return (d.exercises || []).length > 0;
+              return true; // basketball/recovery: opsiyonel egzersiz
+            }).length;
             const isOpen = openWeek === w;
             return (
               <div
@@ -384,9 +461,38 @@ export default function PlanForm({ plan, initialDays }: Props) {
                           key={globalIdx}
                           day={day}
                           dayLabel={`Gün ${globalIdx + 1} · ${TR_WEEKDAYS[weekdayIdx]}`}
-                          programs={programs}
                           onChange={(patch) => updateDay(globalIdx, patch)}
-                          onQuickCreate={() => setQuickCreateForDay(globalIdx)}
+                          onAddNewExercise={() =>
+                            setExerciseModal({
+                              dayIndex: globalIdx,
+                              exerciseIndex: -1,
+                            })
+                          }
+                          onEditExercise={(exIdx) =>
+                            setExerciseModal({
+                              dayIndex: globalIdx,
+                              exerciseIndex: exIdx,
+                            })
+                          }
+                          onDeleteExercise={(exIdx) => {
+                            const next = (day.exercises || []).filter(
+                              (_, i) => i !== exIdx
+                            );
+                            setDayExercises(globalIdx, next);
+                          }}
+                          onMoveExercise={(exIdx, dir) => {
+                            const list = [...(day.exercises || [])];
+                            const target = exIdx + dir;
+                            if (target < 0 || target >= list.length) return;
+                            [list[exIdx], list[target]] = [
+                              list[target],
+                              list[exIdx],
+                            ];
+                            setDayExercises(globalIdx, list);
+                          }}
+                          onPickFromLibrary={() =>
+                            setLibraryForDay(globalIdx)
+                          }
                         />
                       );
                     })}
@@ -466,14 +572,44 @@ export default function PlanForm({ plan, initialDays }: Props) {
         </div>
       )}
 
-      {/* Plan-içi yeni program oluşturma modal'ı */}
-      <ProgramQuickCreateModal
-        isOpen={quickCreateForDay !== null}
-        suggestedName={
-          quickCreateForDay !== null ? quickCreateSuggestedName(quickCreateForDay) : ""
-        }
-        onClose={() => setQuickCreateForDay(null)}
-        onCreated={handleQuickCreated}
+      {/* Egzersiz formu modal */}
+      {exerciseModal && editingDay && (
+        <PlanDayExerciseForm
+          exercise={editingExercise}
+          storageNamespace={
+            editingDay.id
+              ? `plan-day-${editingDay.id}`
+              : `plan-pending-${plan?.id || "new"}-d${exerciseModal.dayIndex}`
+          }
+          exerciseStorageId={
+            editingExercise?.id ||
+            `tmp-${exerciseModal.dayIndex}-${Date.now()}`
+          }
+          onSave={(data) => {
+            const dayIdx = exerciseModal.dayIndex;
+            const exIdx = exerciseModal.exerciseIndex;
+            const list = [...(days[dayIdx].exercises || [])];
+            if (exIdx >= 0) {
+              list[exIdx] = { ...list[exIdx], ...data };
+            } else {
+              list.push({ ...data, sort_order: list.length });
+            }
+            setDayExercises(dayIdx, list);
+            setExerciseModal(null);
+          }}
+          onClose={() => setExerciseModal(null)}
+        />
+      )}
+
+      {/* Kütüphane modal */}
+      <ExerciseLibraryPicker
+        isOpen={libraryForDay !== null}
+        onClose={() => setLibraryForDay(null)}
+        onPick={(picked) => {
+          if (libraryForDay !== null) {
+            appendDayExercises(libraryForDay, picked);
+          }
+        }}
       />
     </form>
   );
@@ -484,13 +620,26 @@ export default function PlanForm({ plan, initialDays }: Props) {
 interface DayEditorProps {
   day: TrainingPlanDay;
   dayLabel: string;
-  programs: Program[];
   onChange: (patch: Partial<TrainingPlanDay>) => void;
-  onQuickCreate: () => void;
+  onAddNewExercise: () => void;
+  onEditExercise: (exerciseIndex: number) => void;
+  onDeleteExercise: (exerciseIndex: number) => void;
+  onMoveExercise: (exerciseIndex: number, direction: -1 | 1) => void;
+  onPickFromLibrary: () => void;
 }
 
-function DayEditor({ day, dayLabel, programs, onChange, onQuickCreate }: DayEditorProps) {
+function DayEditor({
+  day,
+  dayLabel,
+  onChange,
+  onAddNewExercise,
+  onEditExercise,
+  onDeleteExercise,
+  onMoveExercise,
+  onPickFromLibrary,
+}: DayEditorProps) {
   const [showNotes, setShowNotes] = useState(!!day.notes);
+  const [showExercises, setShowExercises] = useState(false);
 
   const dayTypeColor: Record<DayType, string> = {
     workout: "bg-orange-900/30 text-orange-400 border-orange-700",
@@ -498,6 +647,10 @@ function DayEditor({ day, dayLabel, programs, onChange, onQuickCreate }: DayEdit
     basketball: "bg-blue-900/30 text-blue-400 border-blue-700",
     recovery: "bg-green-900/30 text-green-400 border-green-700",
   };
+
+  const exercises = day.exercises || [];
+  const canHaveExercises = day.day_type !== "rest";
+  const exerciseRequired = day.day_type === "workout";
 
   return (
     <div className="border-b border-[var(--border)] last:border-0 p-4 space-y-3">
@@ -530,59 +683,6 @@ function DayEditor({ day, dayLabel, programs, onChange, onQuickCreate }: DayEdit
           </select>
         </div>
 
-        {day.day_type !== "rest" && (
-          <div>
-            <label className="block text-xs text-[var(--text-secondary)] mb-1">
-              Program {day.day_type === "workout" ? "*" : "(opsiyonel)"}
-            </label>
-            <div className="flex gap-2">
-              <select
-                value={day.workout_program_id || ""}
-                onChange={(e) =>
-                  onChange({ workout_program_id: e.target.value || null })
-                }
-                required={day.day_type === "workout"}
-                className={`flex-1 px-3 py-2 rounded bg-[var(--bg-secondary)] border text-white text-sm focus:outline-none focus:border-[var(--accent)] ${
-                  day.day_type === "workout" && !day.workout_program_id
-                    ? "border-orange-700"
-                    : "border-[var(--border)]"
-                }`}
-              >
-                <option value="">Seç...</option>
-                {programs.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={onQuickCreate}
-                title="Plan-içi yeni program oluştur"
-                className="px-3 py-2 rounded bg-purple-900/30 hover:bg-purple-900/50 border border-purple-700 text-purple-400 text-sm transition-colors whitespace-nowrap"
-              >
-                + Yeni
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div>
-        <label className="block text-xs text-[var(--text-secondary)] mb-1">
-          Başlık
-        </label>
-        <input
-          type="text"
-          value={day.title}
-          onChange={(e) => onChange({ title: e.target.value })}
-          required
-          placeholder="örn. Alt Vücut Güç"
-          className="w-full px-3 py-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-white text-sm focus:outline-none focus:border-[var(--accent)]"
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-xs text-[var(--text-secondary)] mb-1">
             Yoğunluk
@@ -604,28 +704,146 @@ function DayEditor({ day, dayLabel, programs, onChange, onQuickCreate }: DayEdit
             ))}
           </select>
         </div>
-
-        <div>
-          <label className="block text-xs text-[var(--text-secondary)] mb-1">
-            Süre (dk)
-          </label>
-          <input
-            type="number"
-            min={0}
-            max={600}
-            value={day.estimated_duration_min ?? ""}
-            onChange={(e) =>
-              onChange({
-                estimated_duration_min: e.target.value
-                  ? parseInt(e.target.value)
-                  : null,
-              })
-            }
-            placeholder="—"
-            className="w-full px-3 py-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-white text-sm focus:outline-none focus:border-[var(--accent)]"
-          />
-        </div>
       </div>
+
+      <div>
+        <label className="block text-xs text-[var(--text-secondary)] mb-1">
+          Başlık
+        </label>
+        <input
+          type="text"
+          value={day.title}
+          onChange={(e) => onChange({ title: e.target.value })}
+          required
+          placeholder="örn. Alt Vücut Güç"
+          className="w-full px-3 py-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-white text-sm focus:outline-none focus:border-[var(--accent)]"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs text-[var(--text-secondary)] mb-1">
+          Süre (dk)
+        </label>
+        <input
+          type="number"
+          min={0}
+          max={600}
+          value={day.estimated_duration_min ?? ""}
+          onChange={(e) =>
+            onChange({
+              estimated_duration_min: e.target.value
+                ? parseInt(e.target.value)
+                : null,
+            })
+          }
+          placeholder="—"
+          className="w-full px-3 py-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-white text-sm focus:outline-none focus:border-[var(--accent)]"
+        />
+      </div>
+
+      {/* EGZERSİZLER */}
+      {canHaveExercises && (
+        <div className="rounded border border-[var(--border)] bg-[var(--bg-secondary)]/50">
+          <button
+            type="button"
+            onClick={() => setShowExercises((s) => !s)}
+            className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-[var(--bg-secondary)] transition-colors"
+          >
+            <span className="font-semibold">
+              EGZERSİZLER ({exercises.length})
+              {exerciseRequired && exercises.length === 0 && (
+                <span className="ml-2 text-orange-400 text-xs">⚠ Zorunlu</span>
+              )}
+            </span>
+            <span className="text-[var(--text-secondary)]">
+              {showExercises ? "▼" : "▶"}
+            </span>
+          </button>
+
+          {showExercises && (
+            <div className="px-3 pb-3 space-y-2">
+              {exercises.length > 0 && (
+                <ul className="space-y-1">
+                  {exercises.map((ex, idx) => (
+                    <li
+                      key={idx}
+                      className="flex items-center gap-2 px-2 py-2 rounded bg-[var(--bg-card)] border border-[var(--border)]"
+                    >
+                      <span className="text-xs text-[var(--text-secondary)] font-mono w-6">
+                        {idx + 1}.
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white truncate">
+                          {ex.name}
+                        </p>
+                        <p className="text-xs text-[var(--text-secondary)]">
+                          {ex.reps > 0
+                            ? `${ex.sets} × ${ex.reps}`
+                            : `${ex.sets} × ${ex.duration_seconds}sn`}
+                          {" · "}
+                          {ex.rest_seconds}sn dinlenme
+                          {ex.video_url ? " · 🎥" : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => onMoveExercise(idx, -1)}
+                          disabled={idx === 0}
+                          title="Yukarı"
+                          className="px-1.5 py-1 text-xs text-[var(--text-secondary)] hover:text-white disabled:opacity-30"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onMoveExercise(idx, 1)}
+                          disabled={idx === exercises.length - 1}
+                          title="Aşağı"
+                          className="px-1.5 py-1 text-xs text-[var(--text-secondary)] hover:text-white disabled:opacity-30"
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onEditExercise(idx)}
+                          className="px-2 py-1 rounded text-xs bg-[var(--bg-secondary)] hover:bg-[var(--border)] text-white"
+                        >
+                          Düzenle
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteExercise(idx)}
+                          className="px-2 py-1 rounded text-xs bg-red-900/30 hover:bg-red-900/50 text-red-400"
+                        >
+                          Sil
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={onAddNewExercise}
+                  className="px-3 py-1.5 rounded text-xs bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white font-medium transition-colors"
+                >
+                  + Yeni Egzersiz
+                </button>
+                <button
+                  type="button"
+                  onClick={onPickFromLibrary}
+                  className="px-3 py-1.5 rounded text-xs bg-purple-900/30 hover:bg-purple-900/50 border border-purple-700 text-purple-300 transition-colors"
+                >
+                  + Kütüphaneden Seç
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div>
         <button
