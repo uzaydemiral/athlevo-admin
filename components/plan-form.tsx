@@ -41,6 +41,24 @@ function emptyDay(planId: string, dayIndex: number): TrainingPlanDay {
   };
 }
 
+/** iOS WorkoutProgram.estimatedMinutes ile aynı mantık. Tekrar bazlı egzersizde
+ *  her tekrar ~3sn; süre bazlıda set süresi; her sete dinlenme eklenir.
+ */
+function computeDayMinutes(exercises: TrainingPlanDayExercise[]): number {
+  if (exercises.length === 0) return 0;
+  const totalSeconds = exercises.reduce((acc, ex) => {
+    const workPerSet = ex.reps > 0 ? ex.reps * 3 : ex.duration_seconds;
+    return acc + ex.sets * workPerSet + ex.sets * ex.rest_seconds;
+  }, 0);
+  return Math.max(1, Math.ceil(totalSeconds / 60));
+}
+
+/** State day kaydını günün egzersizlerine göre süreyle senkronize eder. */
+function withAutoDuration(d: TrainingPlanDay): TrainingPlanDay {
+  const mins = computeDayMinutes(d.exercises || []);
+  return { ...d, estimated_duration_min: mins > 0 ? mins : null };
+}
+
 export default function PlanForm({ plan, initialDays }: Props) {
   const router = useRouter();
   const isEdit = !!plan;
@@ -123,10 +141,10 @@ export default function PlanForm({ plan, initialDays }: Props) {
     setDays((current) =>
       current.map((d, i) =>
         i === dayIndex
-          ? {
+          ? withAutoDuration({
               ...d,
               exercises: next.map((ex, idx) => ({ ...ex, sort_order: idx })),
-            }
+            })
           : d
       )
     );
@@ -141,10 +159,27 @@ export default function PlanForm({ plan, initialDays }: Props) {
         if (i !== dayIndex) return d;
         const existing = d.exercises || [];
         const combined = [...existing, ...additions];
-        return {
+        return withAutoDuration({
           ...d,
           exercises: combined.map((ex, idx) => ({ ...ex, sort_order: idx })),
-        };
+        });
+      })
+    );
+  }
+
+  /** Egzersiz alanını inline değiştir (sets/reps/duration/rest). */
+  function updateExerciseField(
+    dayIndex: number,
+    exerciseIndex: number,
+    patch: Partial<TrainingPlanDayExercise>
+  ) {
+    setDays((current) =>
+      current.map((d, i) => {
+        if (i !== dayIndex) return d;
+        const list = (d.exercises || []).slice();
+        if (exerciseIndex < 0 || exerciseIndex >= list.length) return d;
+        list[exerciseIndex] = { ...list[exerciseIndex], ...patch };
+        return withAutoDuration({ ...d, exercises: list });
       })
     );
   }
@@ -493,6 +528,9 @@ export default function PlanForm({ plan, initialDays }: Props) {
                           onPickFromLibrary={() =>
                             setLibraryForDay(globalIdx)
                           }
+                          onUpdateExerciseField={(exIdx, patch) =>
+                            updateExerciseField(globalIdx, exIdx, patch)
+                          }
                         />
                       );
                     })}
@@ -626,6 +664,10 @@ interface DayEditorProps {
   onDeleteExercise: (exerciseIndex: number) => void;
   onMoveExercise: (exerciseIndex: number, direction: -1 | 1) => void;
   onPickFromLibrary: () => void;
+  onUpdateExerciseField: (
+    exerciseIndex: number,
+    patch: Partial<TrainingPlanDayExercise>
+  ) => void;
 }
 
 function DayEditor({
@@ -637,6 +679,7 @@ function DayEditor({
   onDeleteExercise,
   onMoveExercise,
   onPickFromLibrary,
+  onUpdateExerciseField,
 }: DayEditorProps) {
   const [showNotes, setShowNotes] = useState(!!day.notes);
   const [showExercises, setShowExercises] = useState(false);
@@ -720,25 +763,17 @@ function DayEditor({
         />
       </div>
 
-      <div>
-        <label className="block text-xs text-[var(--text-secondary)] mb-1">
-          Süre (dk)
-        </label>
-        <input
-          type="number"
-          min={0}
-          max={600}
-          value={day.estimated_duration_min ?? ""}
-          onChange={(e) =>
-            onChange({
-              estimated_duration_min: e.target.value
-                ? parseInt(e.target.value)
-                : null,
-            })
-          }
-          placeholder="—"
-          className="w-full px-3 py-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-white text-sm focus:outline-none focus:border-[var(--accent)]"
-        />
+      <div className="px-3 py-2 rounded bg-[var(--bg-secondary)]/50 border border-[var(--border)] flex items-center justify-between">
+        <span className="text-xs text-[var(--text-secondary)]">
+          Tahmini Süre
+        </span>
+        <span className="text-sm text-white font-medium">
+          {day.estimated_duration_min
+            ? `~${day.estimated_duration_min} dk`
+            : day.day_type === "rest"
+              ? "—"
+              : "Egzersiz ekleyince hesaplanır"}
+        </span>
       </div>
 
       {/* EGZERSİZLER */}
@@ -763,61 +798,143 @@ function DayEditor({
           {showExercises && (
             <div className="px-3 pb-3 space-y-2">
               {exercises.length > 0 && (
-                <ul className="space-y-1">
+                <ul className="space-y-1.5">
                   {exercises.map((ex, idx) => (
                     <li
                       key={idx}
-                      className="flex items-center gap-2 px-2 py-2 rounded bg-[var(--bg-card)] border border-[var(--border)]"
+                      className="px-2 py-2 rounded bg-[var(--bg-card)] border border-[var(--border)] space-y-2"
                     >
-                      <span className="text-xs text-[var(--text-secondary)] font-mono w-6">
-                        {idx + 1}.
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white truncate">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[var(--text-secondary)] font-mono w-5 flex-shrink-0">
+                          {idx + 1}.
+                        </span>
+                        <p className="flex-1 text-sm text-white truncate">
                           {ex.name}
                         </p>
-                        <p className="text-xs text-[var(--text-secondary)]">
-                          {ex.reps > 0
-                            ? `${ex.sets} × ${ex.reps}`
-                            : `${ex.sets} × ${ex.duration_seconds}sn`}
-                          {" · "}
-                          {ex.rest_seconds}sn dinlenme
-                          {ex.video_url ? " · 🎥" : ""}
-                        </p>
+                        {ex.video_url && (
+                          <span
+                            className="text-xs text-[var(--accent)]"
+                            title="Video yüklü"
+                          >
+                            🎥
+                          </span>
+                        )}
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => onMoveExercise(idx, -1)}
+                            disabled={idx === 0}
+                            title="Yukarı"
+                            className="px-1.5 py-1 text-xs text-[var(--text-secondary)] hover:text-white disabled:opacity-30"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onMoveExercise(idx, 1)}
+                            disabled={idx === exercises.length - 1}
+                            title="Aşağı"
+                            className="px-1.5 py-1 text-xs text-[var(--text-secondary)] hover:text-white disabled:opacity-30"
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onEditExercise(idx)}
+                            title="Ad/açıklama/video düzenle"
+                            className="px-2 py-1 rounded text-xs bg-[var(--bg-secondary)] hover:bg-[var(--border)] text-white"
+                          >
+                            Düzenle
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteExercise(idx)}
+                            className="px-2 py-1 rounded text-xs bg-red-900/30 hover:bg-red-900/50 text-red-400"
+                          >
+                            Sil
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => onMoveExercise(idx, -1)}
-                          disabled={idx === 0}
-                          title="Yukarı"
-                          className="px-1.5 py-1 text-xs text-[var(--text-secondary)] hover:text-white disabled:opacity-30"
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onMoveExercise(idx, 1)}
-                          disabled={idx === exercises.length - 1}
-                          title="Aşağı"
-                          className="px-1.5 py-1 text-xs text-[var(--text-secondary)] hover:text-white disabled:opacity-30"
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onEditExercise(idx)}
-                          className="px-2 py-1 rounded text-xs bg-[var(--bg-secondary)] hover:bg-[var(--border)] text-white"
-                        >
-                          Düzenle
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onDeleteExercise(idx)}
-                          className="px-2 py-1 rounded text-xs bg-red-900/30 hover:bg-red-900/50 text-red-400"
-                        >
-                          Sil
-                        </button>
+
+                      {/* Inline number editing */}
+                      <div className="flex items-center gap-2 pl-7 text-xs flex-wrap">
+                        <label className="text-[var(--text-secondary)]">
+                          Set
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={ex.sets}
+                          onChange={(e) =>
+                            onUpdateExerciseField(idx, {
+                              sets: Math.max(1, Number(e.target.value) || 1),
+                            })
+                          }
+                          className="w-14 px-2 py-1 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-white text-xs focus:outline-none focus:border-[var(--accent)]"
+                        />
+                        <span className="text-[var(--text-secondary)]">×</span>
+                        {ex.reps > 0 ? (
+                          <>
+                            <label className="text-[var(--text-secondary)]">
+                              Tekrar
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={ex.reps}
+                              onChange={(e) =>
+                                onUpdateExerciseField(idx, {
+                                  reps: Math.max(0, Number(e.target.value) || 0),
+                                })
+                              }
+                              className="w-14 px-2 py-1 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-white text-xs focus:outline-none focus:border-[var(--accent)]"
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <label className="text-[var(--text-secondary)]">
+                              Süre
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              value={ex.duration_seconds}
+                              onChange={(e) =>
+                                onUpdateExerciseField(idx, {
+                                  duration_seconds: Math.max(
+                                    0,
+                                    Number(e.target.value) || 0
+                                  ),
+                                })
+                              }
+                              className="w-16 px-2 py-1 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-white text-xs focus:outline-none focus:border-[var(--accent)]"
+                            />
+                            <span className="text-[var(--text-secondary)]">
+                              sn
+                            </span>
+                          </>
+                        )}
+                        <span className="text-[var(--text-secondary)] mx-1">
+                          ·
+                        </span>
+                        <label className="text-[var(--text-secondary)]">
+                          Dinlenme
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={ex.rest_seconds}
+                          onChange={(e) =>
+                            onUpdateExerciseField(idx, {
+                              rest_seconds: Math.max(
+                                0,
+                                Number(e.target.value) || 0
+                              ),
+                            })
+                          }
+                          className="w-14 px-2 py-1 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-white text-xs focus:outline-none focus:border-[var(--accent)]"
+                        />
+                        <span className="text-[var(--text-secondary)]">sn</span>
                       </div>
                     </li>
                   ))}
