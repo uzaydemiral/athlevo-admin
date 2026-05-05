@@ -42,7 +42,20 @@ export default function PlansPage() {
 
   async function handleDelete(id: string) {
     const supabase = createClient();
-    await supabase.from("training_plans").delete().eq("id", id);
+    const { error, count } = await supabase
+      .from("training_plans")
+      .delete({ count: "exact" })
+      .eq("id", id);
+    if (error) {
+      alert("Plan silinemedi: " + error.message);
+      return;
+    }
+    if (!count) {
+      alert(
+        "Plan silinemedi — yetki yok veya RLS engelliyor. Migration: 20260506_training_plans_admin_rls_fix.sql çalıştırıldı mı?"
+      );
+      return;
+    }
     setPlans((prev) => prev.filter((p) => p.id !== id));
     setDeleteId(null);
   }
