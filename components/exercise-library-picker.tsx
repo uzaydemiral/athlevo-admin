@@ -2,31 +2,36 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Exercise, Program, TrainingPlanDayExercise } from "@/lib/types";
+import type { Exercise, Program } from "@/lib/types";
 
-interface Props {
-  isOpen: boolean;
-  onClose: () => void;
-  /** Seçilen egzersizler plan-day egzersizlerine kopyalanır (snapshot). */
-  onPick: (exercises: TrainingPlanDayExercise[]) => void;
-}
-
-interface CatalogRow extends Exercise {
+export interface PickedExerciseRow extends Exercise {
   programName?: string;
   programCategory?: string;
 }
 
-/**
- * Tüm katalog egzersizlerini listeler, çoklu seçim sonrası plan gününe
- * snapshot olarak ekler. Katalogtaki egzersiz daha sonra silinse bile
- * plana eklenmiş kopya bağımsız çalışır.
- */
+interface Props {
+  isOpen: boolean;
+  onClose: () => void;
+  /** Seçilen ham egzersiz satırları. Çağıran taraf snapshot/insert dönüşümünü yapar. */
+  onPick: (rows: PickedExerciseRow[]) => void;
+  /** Verildiğinde bu programa ait egzersizler kaynak listesinden gizlenir.
+   *  (Aynı programa kendi egzersizini kopyalamak anlamsız.) */
+  excludeProgramId?: string;
+  /** Modal başlığı; varsayılan plan-day akışına uygun. */
+  title?: string;
+  /** Açıklama satırı; akışa göre özelleştirilebilir. */
+  subtitle?: string;
+}
+
 export default function ExerciseLibraryPicker({
   isOpen,
   onClose,
   onPick,
+  excludeProgramId,
+  title = "Kütüphaneden Egzersiz Seç",
+  subtitle = "Seçilen egzersizler snapshot olarak kopyalanır. Sonradan düzenleyebilirsin.",
 }: Props) {
-  const [exercises, setExercises] = useState<CatalogRow[]>([]);
+  const [exercises, setExercises] = useState<PickedExerciseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -57,7 +62,7 @@ export default function ExerciseLibraryPicker({
           category: (p.category as string) || "",
         });
       });
-      const enriched: CatalogRow[] = (exRes.data || []).map((ex) => {
+      const enriched: PickedExerciseRow[] = (exRes.data || []).map((ex) => {
         const meta = programLookup.get((ex as Exercise).program_id);
         return {
           ...(ex as Exercise),
@@ -65,12 +70,18 @@ export default function ExerciseLibraryPicker({
           programCategory: meta?.category,
         };
       });
-      // Plan-içi (hidden) program egzersizlerini de gizle: programLookup'a yok.
-      setExercises(enriched.filter((e) => e.programName));
+      // Plan-içi (hidden) program egzersizlerini gizle: programLookup'a yok.
+      // excludeProgramId verilmişse o programa ait egzersizleri de gizle.
+      const visible = enriched.filter((e) => {
+        if (!e.programName) return false;
+        if (excludeProgramId && e.program_id === excludeProgramId) return false;
+        return true;
+      });
+      setExercises(visible);
       setLoading(false);
     }
     fetchAll();
-  }, [isOpen]);
+  }, [isOpen, excludeProgramId]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -95,17 +106,7 @@ export default function ExerciseLibraryPicker({
 
   function handleAdd() {
     const picked = exercises.filter((e) => selectedIds.has(e.id));
-    const snapshots: TrainingPlanDayExercise[] = picked.map((e, idx) => ({
-      name: e.name,
-      sets: e.sets,
-      reps: e.reps,
-      duration_seconds: e.duration_seconds,
-      rest_seconds: e.rest_seconds,
-      description: e.description || "",
-      video_url: e.video_url || null,
-      sort_order: idx,
-    }));
-    onPick(snapshots);
+    onPick(picked);
     onClose();
   }
 
@@ -116,10 +117,9 @@ export default function ExerciseLibraryPicker({
       <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold">Kütüphaneden Egzersiz Seç</h3>
+            <h3 className="text-lg font-semibold">{title}</h3>
             <p className="text-xs text-[var(--text-secondary)] mt-1">
-              Seçilen egzersizler plan gününe snapshot olarak kopyalanır.
-              Sonradan düzenleyebilirsin.
+              {subtitle}
             </p>
           </div>
           <button

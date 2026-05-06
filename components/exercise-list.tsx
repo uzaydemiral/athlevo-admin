@@ -4,6 +4,9 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Exercise } from "@/lib/types";
 import ExerciseForm from "./exercise-form";
+import ExerciseLibraryPicker, {
+  type PickedExerciseRow,
+} from "./exercise-library-picker";
 
 interface Props {
   programId: string;
@@ -11,21 +14,25 @@ interface Props {
   onUpdate: () => void;
 }
 
+function slugifyName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9ğüşıöç]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 20);
+}
+
 export default function ExerciseList({ programId, exercises, onUpdate }: Props) {
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   async function handleSaveNew(data: Partial<Exercise>) {
     const supabase = createClient();
-    const id =
-      data.name!
-        .toLowerCase()
-        .replace(/[^a-z0-9ğüşıöç]/g, "-")
-        .replace(/-+/g, "-")
-        .slice(0, 20) +
-      "-" +
-      Date.now().toString(36);
+    const id = slugifyName(data.name!) + "-" + Date.now().toString(36);
 
     await supabase.from("exercises").insert({
       id,
@@ -34,6 +41,37 @@ export default function ExerciseList({ programId, exercises, onUpdate }: Props) 
       ...data,
     });
     setShowNewForm(false);
+    onUpdate();
+  }
+
+  async function handlePickFromLibrary(rows: PickedExerciseRow[]) {
+    if (rows.length === 0) return;
+    setImporting(true);
+    const supabase = createClient();
+    const baseStamp = Date.now();
+    const startOrder = exercises.length;
+    const inserts = rows.map((row, idx) => ({
+      id:
+        slugifyName(row.name) +
+        "-" +
+        (baseStamp + idx).toString(36),
+      program_id: programId,
+      name: row.name,
+      sets: row.sets,
+      reps: row.reps,
+      duration_seconds: row.duration_seconds,
+      rest_seconds: row.rest_seconds,
+      description: row.description || "",
+      video_url: row.video_url || null,
+      sort_order: startOrder + idx + 1,
+    }));
+    const { error } = await supabase.from("exercises").insert(inserts);
+    setImporting(false);
+    if (error) {
+      alert("Egzersiz ekleme hatası: " + error.message);
+      return;
+    }
+    setShowLibrary(false);
     onUpdate();
   }
 
@@ -77,12 +115,23 @@ export default function ExerciseList({ programId, exercises, onUpdate }: Props) 
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">EGZERSİZLER</h2>
-        <button
-          onClick={() => setShowNewForm(true)}
-          className="px-4 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-semibold transition-colors"
-        >
-          + Egzersiz Ekle
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setShowLibrary(true)}
+            disabled={importing}
+            className="px-4 py-2 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--border)] text-white text-sm font-semibold transition-colors disabled:opacity-50"
+          >
+            + Kütüphaneden Seç
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowNewForm(true)}
+            className="px-4 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-semibold transition-colors"
+          >
+            + Yeni Egzersiz
+          </button>
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -164,6 +213,16 @@ export default function ExerciseList({ programId, exercises, onUpdate }: Props) 
           onClose={() => setShowNewForm(false)}
         />
       )}
+
+      {/* Kütüphane modal — başka katalog programlarından kopyala */}
+      <ExerciseLibraryPicker
+        isOpen={showLibrary}
+        onClose={() => setShowLibrary(false)}
+        onPick={handlePickFromLibrary}
+        excludeProgramId={programId}
+        title="Kütüphaneden Egzersiz Ekle"
+        subtitle="Seçilenler bu programa kopyalanır. Sonradan bağımsız düzenleyebilirsin."
+      />
 
       {/* Düzenleme formu */}
       {editingExercise && (

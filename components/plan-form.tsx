@@ -643,10 +643,19 @@ export default function PlanForm({ plan, initialDays }: Props) {
       <ExerciseLibraryPicker
         isOpen={libraryForDay !== null}
         onClose={() => setLibraryForDay(null)}
-        onPick={(picked) => {
-          if (libraryForDay !== null) {
-            appendDayExercises(libraryForDay, picked);
-          }
+        onPick={(rows) => {
+          if (libraryForDay === null) return;
+          const snapshots: TrainingPlanDayExercise[] = rows.map((e, idx) => ({
+            name: e.name,
+            sets: e.sets,
+            reps: e.reps,
+            duration_seconds: e.duration_seconds,
+            rest_seconds: e.rest_seconds,
+            description: e.description || "",
+            video_url: e.video_url || null,
+            sort_order: idx,
+          }));
+          appendDayExercises(libraryForDay, snapshots);
         }}
       />
     </form>
