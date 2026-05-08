@@ -977,14 +977,14 @@ function DayEditor({
           onClick={() => setShowNotes(!showNotes)}
           className="text-xs text-[var(--text-secondary)] hover:text-white transition-colors"
         >
-          {showNotes ? "− Not gizle" : "+ Not ekle"}
+          {showNotes ? "− Hedef gizle" : "+ Hedef ekle"}
         </button>
         {showNotes && (
           <textarea
             value={day.notes || ""}
             onChange={(e) => onChange({ notes: e.target.value || null })}
             rows={2}
-            placeholder="Sporcuya özel not..."
+            placeholder="Bu günün hedefi: Patlayıcı kuvvet, dayanıklılık, şut formu..."
             className="mt-2 w-full px-3 py-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-white text-sm focus:outline-none focus:border-[var(--accent)]"
           />
         )}
