@@ -28,6 +28,7 @@ interface Props {
 const TR_WEEKDAYS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 
 function emptyDay(planId: string, dayIndex: number): TrainingPlanDay {
+  // image_url initially null — admin uploads via ImageUpload in DayEditor.
   return {
     plan_id: planId,
     day_index: dayIndex,
@@ -37,6 +38,7 @@ function emptyDay(planId: string, dayIndex: number): TrainingPlanDay {
     notes: null,
     estimated_duration_min: null,
     intensity: null,
+    image_url: null,
     exercises: [],
   };
 }
@@ -280,6 +282,8 @@ export default function PlanForm({ plan, initialDays }: Props) {
       notes: d.notes,
       estimated_duration_min: d.estimated_duration_min,
       intensity: d.intensity,
+      // Rest günlerinde kapak yok — image_url her zaman null.
+      image_url: d.day_type === "rest" ? null : d.image_url,
     }));
 
     const { data: insertedDays, error: insError } = await supabase
@@ -771,6 +775,14 @@ function DayEditor({
           className="w-full px-3 py-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-white text-sm focus:outline-none focus:border-[var(--accent)]"
         />
       </div>
+
+      {day.day_type !== "rest" && (
+        <ImageUpload
+          currentUrl={day.image_url || ""}
+          folder="plan-days"
+          onUpload={(url) => onChange({ image_url: url || null })}
+        />
+      )}
 
       <div className="px-3 py-2 rounded bg-[var(--bg-secondary)]/50 border border-[var(--border)] flex items-center justify-between">
         <span className="text-xs text-[var(--text-secondary)]">

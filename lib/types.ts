@@ -154,6 +154,8 @@ export interface TrainingPlanDay {
   notes: string | null;
   estimated_duration_min: number | null;
   intensity: Intensity | null;
+  /** Plan gününün workout kapak fotoğrafı. iOS WorkoutDetailView hero'da render edilir. */
+  image_url: string | null;
   created_at?: string;
   /** Bu güne ait egzersizler. Snapshot — katalog egzersizlerinden kopyalanır veya manuel girilir. */
   exercises?: TrainingPlanDayExercise[];
