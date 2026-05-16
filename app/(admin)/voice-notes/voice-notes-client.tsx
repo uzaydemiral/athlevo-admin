@@ -366,7 +366,16 @@ function RecorderModal({
 }
 
 function pickMimeType(): string {
-  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+  // iOS AVAudioPlayer doesn't decode webm/opus. Prefer m4a/AAC so the same blob
+  // plays natively on the recipient's iPhone without server-side transcoding.
+  // Safari MediaRecorder supports audio/mp4; Chrome falls back to webm.
+  const candidates = [
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/mp4",
+    "audio/aac",
+    "audio/webm;codecs=opus",
+    "audio/webm",
+  ];
   for (const t of candidates) {
     if (MediaRecorder.isTypeSupported(t)) return t;
   }
