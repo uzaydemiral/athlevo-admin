@@ -117,32 +117,34 @@ export async function POST(request: Request) {
     );
   }
 
-  // 6. Trigger send-voice-note edge fn.
-  // Use sprint test bypass header (matches send-apns-push and send-voice-note).
-  // Service_role bearer is rejected by the Supabase functions gateway on some
-  // deployments; bypass works regardless. Remove both before v4.1 production submit.
-  console.log("[voice-notes/upload] triggering send-voice-note for", inserted.id);
+  // 6. Trigger send-voice-note edge fn with the shared internal-trigger key.
+  // (Bearer service_role and SDK functions.invoke both failed in dev, so we
+  // use the dedicated symmetric secret pattern we control end-to-end.)
+  const internalKey = process.env.INTERNAL_TRIGGER_KEY;
+  if (!internalKey) {
+    return NextResponse.json(
+      { ok: false, error: "Server missing INTERNAL_TRIGGER_KEY" },
+      { status: 500 },
+    );
+  }
   const triggerRes = await fetch(
     `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/send-voice-note`,
     {
       method: "POST",
       headers: {
-        "x-test-bypass": "athlevo-16may-onetime",
+        "x-internal-trigger-key": internalKey,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ voice_note_id: inserted.id }),
     },
   );
-  console.log("[voice-notes/upload] send-voice-note status:", triggerRes.status);
   let triggerJson: unknown = null;
   try {
     triggerJson = await triggerRes.json();
   } catch {
     triggerJson = { warning: "Could not parse trigger response" };
   }
-
   if (!triggerRes.ok) {
-    // Push trigger failed but the row exists — surface for retry.
     return NextResponse.json(
       {
         ok: false,
