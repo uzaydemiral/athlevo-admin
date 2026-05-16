@@ -11,6 +11,7 @@ const navItems = [
   { href: "/categories", label: "Kategoriler", icon: "📁" },
   { href: "/rewards", label: "Ödüller", icon: "🎁" },
   { href: "/claims", label: "Talepler", icon: "📦" },
+  { href: "/voice-notes", label: "Ses Notları", icon: "🎙️" },
 ];
 
 export default function Sidebar() {
