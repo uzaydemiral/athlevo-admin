@@ -217,8 +217,8 @@ function ContextSummary({ candidate: c }: { candidate: Candidate }) {
     }
     if (c.reason === "new-user") {
       if (c.total_workout_count === 0) return "Yeni kayıt, ilk antrenmana yönlendir.";
-      if (c.current_streak >= 3) return "İyi başladı, motivasyon ver, ${" + c.current_streak + "} gün streak.";
-      return "Yeni, başarısını teyit et + sıradakini öner.";
+      if (c.current_streak >= 3) return `İyi başladı, ${c.current_streak} gün streak — motivasyon ver.`;
+      return "Yeni kullanıcı, başarısını teyit et + sıradakini öner.";
     }
     if (c.best_jump_cm != null && c.best_jump_cm >= 50) {
       return `${c.best_jump_cm.toFixed(0)} cm sıçrama — tebrik + bir sonraki hedef.`;
