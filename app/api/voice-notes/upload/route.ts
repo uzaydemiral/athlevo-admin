@@ -127,11 +127,15 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+  // Supabase Gateway requires a Bearer JWT to even reach the function (verify_jwt
+  // is on by default). service_role passes the outer gate; the internal trigger
+  // key is the function-internal auth signal we control end-to-end.
   const triggerRes = await fetch(
     `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/send-voice-note`,
     {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${serviceKey}`,
         "x-internal-trigger-key": internalKey,
         "Content-Type": "application/json",
       },
