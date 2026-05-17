@@ -74,7 +74,7 @@ export default async function VoiceNotesPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [candidates, recent] = await Promise.all([fetchCandidates(8), fetchRecent()]);
+  const [candidates, recent] = await Promise.all([fetchCandidates(30), fetchRecent()]);
 
   return <VoiceNotesClient candidates={candidates} recent={recent} />;
 }
