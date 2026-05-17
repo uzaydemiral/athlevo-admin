@@ -262,7 +262,14 @@ function RecorderModal({
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {
-        throw new Error(json.error || "Upload başarısız");
+        // Surface the full server payload — auth-fail details, trigger reason, etc.
+        // No more generic 'Upload başarısız'; we need the actual cause visible.
+        const detail =
+          json.error ||
+          json.stage ||
+          (json.trigger ? JSON.stringify(json.trigger) : null) ||
+          `HTTP ${res.status}`;
+        throw new Error(detail);
       }
       setState("done");
       router.refresh();
