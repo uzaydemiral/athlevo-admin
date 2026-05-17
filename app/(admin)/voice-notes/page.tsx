@@ -26,6 +26,7 @@ type Candidate = {
   current_streak: number;
   longest_streak: number;
   total_workout_count: number;
+  is_test_account: boolean;
 };
 
 type RecentVoiceNote = {
@@ -39,7 +40,7 @@ type RecentVoiceNote = {
   feedback_thumbs: string | null;
 };
 
-async function fetchCandidates(limit: number): Promise<Candidate[]> {
+async function fetchCandidates(limit: number, includeTest: boolean): Promise<Candidate[]> {
   const res = await fetch(
     `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/rpc/suggest_voice_note_targets`,
     {
@@ -49,7 +50,7 @@ async function fetchCandidates(limit: number): Promise<Candidate[]> {
         Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY!}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ p_limit: limit }),
+      body: JSON.stringify({ p_limit: limit, p_include_test: includeTest }),
       cache: "no-store",
     },
   );
@@ -75,14 +76,30 @@ async function fetchRecent(): Promise<RecentVoiceNote[]> {
   return res.json();
 }
 
-export default async function VoiceNotesPage() {
+export default async function VoiceNotesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ include_test?: string }>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [candidates, recent] = await Promise.all([fetchCandidates(30), fetchRecent()]);
+  const params = await searchParams;
+  const includeTest = params.include_test === "1";
 
-  return <VoiceNotesClient candidates={candidates} recent={recent} />;
+  const [candidates, recent] = await Promise.all([
+    fetchCandidates(30, includeTest),
+    fetchRecent(),
+  ]);
+
+  return (
+    <VoiceNotesClient
+      candidates={candidates}
+      recent={recent}
+      includeTest={includeTest}
+    />
+  );
 }

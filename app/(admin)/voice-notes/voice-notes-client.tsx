@@ -21,6 +21,7 @@ type Candidate = {
   current_streak: number;
   longest_streak: number;
   total_workout_count: number;
+  is_test_account: boolean;
 };
 
 type RecentVoiceNote = {
@@ -47,11 +48,18 @@ const reasonLabel: Record<string, { label: string; color: string }> = {
 export default function VoiceNotesClient({
   candidates,
   recent,
+  includeTest,
 }: {
   candidates: Candidate[];
   recent: RecentVoiceNote[];
+  includeTest: boolean;
 }) {
+  const router = useRouter();
   const [activeTarget, setActiveTarget] = useState<Candidate | null>(null);
+
+  function toggleTest() {
+    router.push(includeTest ? "/voice-notes" : "/voice-notes?include_test=1");
+  }
 
   return (
     <div className="p-8 max-w-7xl">
@@ -63,9 +71,26 @@ export default function VoiceNotesClient({
       </header>
 
       <section className="mb-12">
-        <h2 className="text-sm uppercase tracking-wider text-[var(--text-secondary)] mb-4">
-          Aday Kullanıcılar ({candidates.length})
-        </h2>
+        <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
+          <h2 className="text-sm uppercase tracking-wider text-[var(--text-secondary)]">
+            Aday Kullanıcılar ({candidates.length})
+            {!includeTest && (
+              <span className="ml-2 text-[10px] normal-case opacity-70">
+                · sadece gerçek kullanıcılar
+              </span>
+            )}
+          </h2>
+          <button
+            onClick={toggleTest}
+            className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+              includeTest
+                ? "border-yellow-500/40 bg-yellow-500/10 text-yellow-400"
+                : "border-[var(--border)] hover:bg-[var(--bg-secondary)]"
+            }`}
+          >
+            {includeTest ? "🧪 Test dahil — Gerçek'e geç" : "Test hesaplarını göster"}
+          </button>
+        </div>
         {candidates.length === 0 ? (
           <div className="text-[var(--text-secondary)] text-sm p-6 border border-[var(--border)] rounded-lg">
             Şu an gönderilebilecek aday yok. (Son 14 günde herkese gönderilmiş olabilir.)
@@ -153,10 +178,19 @@ function CandidateCard({
   const username = candidate.username ? `@${candidate.username}` : "";
 
   return (
-    <div className="p-5 border border-[var(--border)] rounded-lg bg-[var(--bg-card)] flex flex-col gap-3">
+    <div className={`p-5 border rounded-lg bg-[var(--bg-card)] flex flex-col gap-3 ${
+      candidate.is_test_account ? "border-yellow-500/40" : "border-[var(--border)]"
+    }`}>
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="font-semibold">{name}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-semibold">{name}</p>
+            {candidate.is_test_account && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 border border-yellow-500/30">
+                🧪 TEST
+              </span>
+            )}
+          </div>
           {username && (
             <p className="text-xs text-[var(--text-secondary)] mt-0.5">{username}</p>
           )}
