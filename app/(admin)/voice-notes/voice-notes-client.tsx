@@ -262,14 +262,19 @@ function RecorderModal({
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {
-        // Surface the full server payload — auth-fail details, trigger reason, etc.
-        // No more generic 'Upload başarısız'; we need the actual cause visible.
+        // Surface the full server payload — trigger payload first so edge-fn
+        // diagnostic JSON is visible, then stage/error fallbacks.
+        const triggerPart = json.trigger
+          ? typeof json.trigger === "string"
+            ? json.trigger
+            : JSON.stringify(json.trigger)
+          : null;
         const detail =
+          triggerPart ||
           json.error ||
           json.stage ||
-          (json.trigger ? JSON.stringify(json.trigger) : null) ||
           `HTTP ${res.status}`;
-        throw new Error(detail);
+        throw new Error(`${json.stage ?? "err"}: ${detail}`);
       }
       setState("done");
       router.refresh();
