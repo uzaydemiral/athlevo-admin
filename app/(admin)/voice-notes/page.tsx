@@ -12,12 +12,20 @@ type Candidate = {
   user_id: string;
   display_name: string | null;
   username: string | null;
+  user_position: string | null;
   last_workout_at: string | null;
   days_inactive: number;
   signup_at: string;
   days_since_signup: number;
   reason: "churn-risk" | "new-user" | "random";
   score: number;
+  this_week_workout_count: number;
+  recent_program_names: string[];
+  best_jump_cm: number | null;
+  recent_jump_count: number;
+  current_streak: number;
+  longest_streak: number;
+  total_workout_count: number;
 };
 
 type RecentVoiceNote = {

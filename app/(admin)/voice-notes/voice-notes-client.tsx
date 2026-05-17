@@ -7,12 +7,20 @@ type Candidate = {
   user_id: string;
   display_name: string | null;
   username: string | null;
+  user_position: string | null;
   last_workout_at: string | null;
   days_inactive: number;
   signup_at: string;
   days_since_signup: number;
   reason: "churn-risk" | "new-user" | "random";
   score: number;
+  this_week_workout_count: number;
+  recent_program_names: string[];
+  best_jump_cm: number | null;
+  recent_jump_count: number;
+  current_streak: number;
+  longest_streak: number;
+  total_workout_count: number;
 };
 
 type RecentVoiceNote = {
@@ -163,15 +171,81 @@ function CandidateCard({
           <p>Hiç antrenman yapmadı</p>
         )}
         <p>Kayıt: {candidate.days_since_signup} gün önce</p>
-        <p className="opacity-60">Skor: {candidate.score.toFixed(2)}</p>
       </div>
+
+      <ContextSummary candidate={candidate} />
+
+      <p className="text-xs opacity-50">Skor: {candidate.score.toFixed(2)}</p>
 
       <button
         onClick={onPick}
-        className="mt-2 w-full py-2 rounded-md bg-[var(--accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity"
+        className="mt-1 w-full py-2 rounded-md bg-[var(--accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity"
       >
         🎙️ Kayıt Başlat
       </button>
+    </div>
+  );
+}
+
+/**
+ * Renders the per-user context summary that helps the admin decide what to say
+ * in the voice note. Stays compact (3-4 chips) to fit the card.
+ */
+function ContextSummary({ candidate: c }: { candidate: Candidate }) {
+  const chips: string[] = [];
+
+  if (c.user_position) chips.push(`🏀 ${c.user_position}`);
+  if (c.best_jump_cm != null) chips.push(`${c.best_jump_cm.toFixed(0)} cm`);
+  if (c.current_streak > 0) chips.push(`🔥 ${c.current_streak} gün`);
+  if (c.this_week_workout_count > 0) chips.push(`${c.this_week_workout_count} antr./hafta`);
+  if (c.total_workout_count > 0 && c.this_week_workout_count === 0) {
+    chips.push(`${c.total_workout_count} toplam antr.`);
+  }
+
+  const programs = c.recent_program_names ?? [];
+  const programPreview =
+    programs.length > 0
+      ? programs.slice(0, 2).join(", ") + (programs.length > 2 ? ` +${programs.length - 2}` : "")
+      : null;
+
+  // Suggested talking point — tailored to the reason category.
+  const suggestion = (() => {
+    if (c.reason === "churn-risk") {
+      return c.last_workout_at
+        ? `${c.days_inactive} gündür gelmedi, sadece "geri çağrı" yap.`
+        : "Hiç antrenman yok, hatırlat.";
+    }
+    if (c.reason === "new-user") {
+      if (c.total_workout_count === 0) return "Yeni kayıt, ilk antrenmana yönlendir.";
+      if (c.current_streak >= 3) return "İyi başladı, motivasyon ver, ${" + c.current_streak + "} gün streak.";
+      return "Yeni, başarısını teyit et + sıradakini öner.";
+    }
+    if (c.best_jump_cm != null && c.best_jump_cm >= 50) {
+      return `${c.best_jump_cm.toFixed(0)} cm sıçrama — tebrik + bir sonraki hedef.`;
+    }
+    return "Genel motivasyon notu.";
+  })();
+
+  return (
+    <div className="border-t border-[var(--border)] pt-3 space-y-2">
+      {chips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map((chip) => (
+            <span
+              key={chip}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-secondary)]"
+            >
+              {chip}
+            </span>
+          ))}
+        </div>
+      )}
+      {programPreview && (
+        <p className="text-[11px] text-[var(--text-secondary)] leading-snug">
+          <span className="opacity-60">Programlar:</span> {programPreview}
+        </p>
+      )}
+      <p className="text-[11px] text-[var(--accent)] leading-snug italic">{suggestion}</p>
     </div>
   );
 }
