@@ -103,6 +103,9 @@ export default function PlanForm({ plan, initialDays }: Props) {
   // Kütüphane modal — hangi gün için
   const [libraryForDay, setLibraryForDay] = useState<number | null>(null);
 
+  // Gün kopyalama modal — kaynak gün indeksi
+  const [copyFromDay, setCopyFromDay] = useState<number | null>(null);
+
   // When weeksCount changes, grow/shrink days
   useEffect(() => {
     const target = weeksCount * 7;
@@ -184,6 +187,43 @@ export default function PlanForm({ plan, initialDays }: Props) {
         return withAutoDuration({ ...d, exercises: list });
       })
     );
+  }
+
+  /** Kaynak günün içeriğini (day_type, title, notes, intensity, image_url, exercises)
+   *  hedef günlere kopyalar. Gün indeksi ve plan_id korunur. Exercise id/day_id
+   *  sıyrılır, böylece save sırasında fresh insert olur ve PK çakışması olmaz.
+   */
+  function copyDayToTargets(sourceIdx: number, targetIdxs: number[]) {
+    setDays((current) => {
+      const source = current[sourceIdx];
+      if (!source) return current;
+      const cloneExercises = (): TrainingPlanDayExercise[] =>
+        (source.exercises || []).map((ex, idx) => ({
+          name: ex.name,
+          sets: ex.sets,
+          reps: ex.reps,
+          duration_seconds: ex.duration_seconds,
+          rest_seconds: ex.rest_seconds,
+          description: ex.description,
+          video_url: ex.video_url,
+          sort_order: idx,
+        }));
+      const targets = new Set(targetIdxs);
+      return current.map((d, i) => {
+        if (!targets.has(i)) return d;
+        const next: TrainingPlanDay = {
+          ...d,
+          day_type: source.day_type,
+          title: source.title,
+          notes: source.notes,
+          intensity: source.intensity,
+          image_url: source.day_type === "rest" ? null : source.image_url,
+          workout_program_id: null,
+          exercises: cloneExercises(),
+        };
+        return withAutoDuration(next);
+      });
+    });
   }
 
   function handleWeeksChange(newWeeks: number) {
@@ -535,6 +575,7 @@ export default function PlanForm({ plan, initialDays }: Props) {
                           onUpdateExerciseField={(exIdx, patch) =>
                             updateExerciseField(globalIdx, exIdx, patch)
                           }
+                          onCopyDay={() => setCopyFromDay(globalIdx)}
                         />
                       );
                     })}
@@ -662,6 +703,19 @@ export default function PlanForm({ plan, initialDays }: Props) {
           appendDayExercises(libraryForDay, snapshots);
         }}
       />
+
+      {/* Gün kopyalama modal */}
+      {copyFromDay !== null && (
+        <CopyDayModal
+          sourceIdx={copyFromDay}
+          days={days}
+          onClose={() => setCopyFromDay(null)}
+          onConfirm={(targets) => {
+            copyDayToTargets(copyFromDay, targets);
+            setCopyFromDay(null);
+          }}
+        />
+      )}
     </form>
   );
 }
@@ -681,6 +735,7 @@ interface DayEditorProps {
     exerciseIndex: number,
     patch: Partial<TrainingPlanDayExercise>
   ) => void;
+  onCopyDay: () => void;
 }
 
 function DayEditor({
@@ -693,6 +748,7 @@ function DayEditor({
   onMoveExercise,
   onPickFromLibrary,
   onUpdateExerciseField,
+  onCopyDay,
 }: DayEditorProps) {
   const [showNotes, setShowNotes] = useState(!!day.notes);
   const [showExercises, setShowExercises] = useState(false);
@@ -714,11 +770,21 @@ function DayEditor({
         <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
           {dayLabel}
         </span>
-        <span
-          className={`px-2 py-1 rounded text-xs border ${dayTypeColor[day.day_type]}`}
-        >
-          {DAY_TYPE_LABELS[day.day_type]}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onCopyDay}
+            title="Bu günü başka günlere kopyala"
+            className="px-2 py-1 rounded text-xs bg-[var(--bg-secondary)] hover:bg-[var(--border)] text-[var(--text-secondary)] hover:text-white border border-[var(--border)] transition-colors"
+          >
+            ⧉ Kopyala
+          </button>
+          <span
+            className={`px-2 py-1 rounded text-xs border ${dayTypeColor[day.day_type]}`}
+          >
+            {DAY_TYPE_LABELS[day.day_type]}
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -1000,6 +1066,196 @@ function DayEditor({
             className="mt-2 w-full px-3 py-2 rounded bg-[var(--bg-secondary)] border border-[var(--border)] text-white text-sm focus:outline-none focus:border-[var(--accent)]"
           />
         )}
+      </div>
+    </div>
+  );
+}
+
+// MARK: - Copy Day Modal
+
+interface CopyDayModalProps {
+  sourceIdx: number;
+  days: TrainingPlanDay[];
+  onClose: () => void;
+  onConfirm: (targetIdxs: number[]) => void;
+}
+
+function CopyDayModal({
+  sourceIdx,
+  days,
+  onClose,
+  onConfirm,
+}: CopyDayModalProps) {
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const source = days[sourceIdx];
+  const weeksCount = Math.ceil(days.length / 7);
+  const sourceWeek = Math.floor(sourceIdx / 7);
+  const sourceWeekday = sourceIdx % 7;
+  const exerciseCount = source?.exercises?.length || 0;
+
+  function toggle(idx: number) {
+    setSelected((curr) => {
+      const next = new Set(curr);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  }
+
+  function selectAllInWeek(weekIdx: number) {
+    setSelected((curr) => {
+      const next = new Set(curr);
+      const start = weekIdx * 7;
+      const end = Math.min(start + 7, days.length);
+      const weekIndices: number[] = [];
+      for (let i = start; i < end; i++) {
+        if (i !== sourceIdx) weekIndices.push(i);
+      }
+      const allSelected = weekIndices.every((i) => next.has(i));
+      if (allSelected) {
+        weekIndices.forEach((i) => next.delete(i));
+      } else {
+        weekIndices.forEach((i) => next.add(i));
+      }
+      return next;
+    });
+  }
+
+  if (!source) return null;
+
+  const dayTypeColor: Record<DayType, string> = {
+    workout: "bg-orange-900/30 text-orange-400 border-orange-700",
+    rest: "bg-gray-900/30 text-gray-400 border-gray-700",
+    basketball: "bg-blue-900/30 text-blue-400 border-blue-700",
+    recovery: "bg-green-900/30 text-green-400 border-green-700",
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-[var(--bg-card)] rounded-lg border border-[var(--border)] max-w-2xl w-full max-h-[85vh] flex flex-col">
+        {/* Header */}
+        <div className="p-5 border-b border-[var(--border)]">
+          <h3 className="text-lg font-semibold">GÜN KOPYALA</h3>
+          <div className="mt-2 flex items-center gap-2 text-sm text-[var(--text-secondary)] flex-wrap">
+            <span>Kaynak:</span>
+            <span className="text-white font-medium">
+              Hafta {sourceWeek + 1} · {TR_WEEKDAYS[sourceWeekday]} · Gün{" "}
+              {sourceIdx + 1}
+            </span>
+            <span
+              className={`px-2 py-0.5 rounded text-xs border ${dayTypeColor[source.day_type]}`}
+            >
+              {DAY_TYPE_LABELS[source.day_type]}
+            </span>
+            {exerciseCount > 0 && (
+              <span className="text-xs">{exerciseCount} egzersiz</span>
+            )}
+          </div>
+          <p className="text-xs text-[var(--text-secondary)] mt-2">
+            Seçilen günlerin mevcut içeriği <strong>silinir</strong> ve kaynaktan
+            kopyalanır (başlık, tip, yoğunluk, kapak, egzersizler).
+          </p>
+        </div>
+
+        {/* Body — week list */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          {Array.from({ length: weeksCount }).map((_, w) => {
+            const start = w * 7;
+            const weekDays = days.slice(start, start + 7);
+            const weekIndices = weekDays
+              .map((_, i) => start + i)
+              .filter((i) => i !== sourceIdx);
+            const allSelected =
+              weekIndices.length > 0 &&
+              weekIndices.every((i) => selected.has(i));
+            return (
+              <div
+                key={w}
+                className="border border-[var(--border)] rounded bg-[var(--bg-secondary)]/40"
+              >
+                <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
+                  <span className="text-sm font-bold text-[var(--accent)]">
+                    HAFTA {w + 1}
+                  </span>
+                  {weekIndices.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => selectAllInWeek(w)}
+                      className="text-xs text-[var(--text-secondary)] hover:text-white transition-colors"
+                    >
+                      {allSelected ? "Haftayı bırak" : "Haftayı seç"}
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-7 gap-1 p-2">
+                  {weekDays.map((d, wi) => {
+                    const idx = start + wi;
+                    const isSource = idx === sourceIdx;
+                    const isSelected = selected.has(idx);
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        disabled={isSource}
+                        onClick={() => toggle(idx)}
+                        className={`px-2 py-2 rounded text-xs text-left border transition-colors ${
+                          isSource
+                            ? "bg-[var(--bg-secondary)] border-[var(--border)] text-[var(--text-secondary)] opacity-50 cursor-not-allowed"
+                            : isSelected
+                              ? "bg-[var(--accent)]/20 border-[var(--accent)] text-white"
+                              : "bg-[var(--bg-secondary)] border-[var(--border)] text-white hover:border-[var(--accent)]"
+                        }`}
+                      >
+                        <div className="font-mono text-[10px] text-[var(--text-secondary)]">
+                          {TR_WEEKDAYS[wi]}
+                        </div>
+                        <div className="font-semibold mt-0.5">
+                          G{idx + 1}
+                        </div>
+                        <div
+                          className={`mt-1 inline-block px-1 py-0.5 rounded text-[10px] border ${dayTypeColor[d.day_type]}`}
+                        >
+                          {DAY_TYPE_LABELS[d.day_type]}
+                        </div>
+                        {isSource && (
+                          <div className="text-[10px] text-[var(--accent)] mt-1">
+                            kaynak
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div className="p-5 border-t border-[var(--border)] flex items-center justify-between gap-3">
+          <span className="text-sm text-[var(--text-secondary)]">
+            {selected.size} gün seçili
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg bg-[var(--bg-secondary)] hover:bg-[var(--border)] text-white text-sm transition-colors"
+            >
+              İptal
+            </button>
+            <button
+              type="button"
+              disabled={selected.size === 0}
+              onClick={() => onConfirm(Array.from(selected))}
+              className="px-4 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {selected.size > 0
+                ? `${selected.size} güne kopyala`
+                : "Kopyala"}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
